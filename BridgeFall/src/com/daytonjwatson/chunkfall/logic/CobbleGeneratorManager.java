@@ -262,9 +262,9 @@ public class CobbleGeneratorManager {
         double pz = bz + 0.5;
 
         int crackCount = harvested ? 6 : 3;
-        world.spawnParticle(Particle.BLOCK_CRACK, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
+        world.spawnParticle(Particle.BLOCK_CRUMBLE, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
 
-        Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE_NORMAL;
+        Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE;
         int smokeCount = harvested ? 4 : 2;
         world.spawnParticle(smokeType, px, py + 0.1, pz, smokeCount, 0.12, 0.1, 0.12, harvested ? 0.0 : 0.01);
     }
