@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import com.daytonjwatson.chunkfall.command.ChunkFallCommand;
 import com.daytonjwatson.chunkfall.config.ChunkFallConfig;
 import com.daytonjwatson.chunkfall.listener.ChunkLoadListener;
 import com.daytonjwatson.chunkfall.listener.CobbleGeneratorListener;
@@ -77,6 +78,12 @@ public class ChunkFallPlugin extends JavaPlugin {
         World overworld = Bukkit.getWorld(chunkFallConfig.getTargetWorldName());
         if (overworld != null && chunkFallConfig.isSetOverworldSpawnOnIsland()) {
             chunkProcessor.ensureSpawnOnIsland(overworld);
+        }
+
+        ChunkFallCommand command = new ChunkFallCommand(this);
+        if (getCommand("chunkfall") != null) {
+            getCommand("chunkfall").setExecutor(command);
+            getCommand("chunkfall").setTabCompleter(command);
         }
     }
 
