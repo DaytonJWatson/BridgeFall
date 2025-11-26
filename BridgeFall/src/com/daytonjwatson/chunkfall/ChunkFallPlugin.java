@@ -102,4 +102,11 @@ public class ChunkFallPlugin extends JavaPlugin {
     public CobbleGeneratorManager getCobbleGeneratorManager() {
         return cobbleGeneratorManager;
     }
+
+    @Override
+    public void onDisable() {
+        if (cobbleGeneratorManager != null) {
+            cobbleGeneratorManager.stop();
+        }
+    }
 }

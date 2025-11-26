@@ -47,7 +47,7 @@ disable-elytra-rocket-boost: true
 
 cobble-generator:
   enabled: true
-    
+
   # Base scheduler tick period. This is the "unit time" all other multipliers work against.
   ticks-per-cobble: 20
 
@@ -72,6 +72,12 @@ cobble-generator:
     on-create: true
     on-mine: true
     on-break: true
+  animation:
+    enabled: true
+    update-ticks: 5
+
+  # Developer debugging for the cobble generator
+  debug: false
 
 # -----------------------------------
 # Limbo Settings

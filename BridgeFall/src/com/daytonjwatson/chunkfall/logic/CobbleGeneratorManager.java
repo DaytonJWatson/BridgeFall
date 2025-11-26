@@ -18,27 +18,30 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.util.EulerAngle;
 
-import java.util.*;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 public class CobbleGeneratorManager {
 
+    private static final double PROGRESS_CAP = 10.0;
+
     private final Plugin plugin;
     private final ChunkFallConfig config;
+    private final CobbleGeneratorAnimationManager animationManager;
 
-    // Barrels acting as generators
-    private final Set<Location> generators = new HashSet<>();
-    // Per-generator progress counter (how close we are to next cobble)
-    private final Map<Location, Double> progress = new HashMap<>();
-    // Per-generator remaining "uses" of the currently consumed fuel item
-    private final Map<Location, Integer> fuelUsesRemaining = new HashMap<>();
+    private final Map<Location, CobbleGeneratorState> generators = new HashMap<>();
+    private BukkitTask generatorTask;
 
     public CobbleGeneratorManager(Plugin plugin, ChunkFallConfig config) {
         this.plugin = plugin;
         this.config = config;
+        this.animationManager = new CobbleGeneratorAnimationManager(plugin, config);
     }
 
     public void start() {
@@ -46,146 +49,155 @@ public class CobbleGeneratorManager {
             return;
         }
 
-        long period = config.getCobbleGeneratorTicksPerCobble();
-        if (period <= 0L) {
-            period = 20L;
-        }
+        long period = Math.max(1L, config.getCobbleGeneratorTicksPerCobble());
+        generatorTask = Bukkit.getScheduler().runTaskTimer(plugin, this::tickGenerators, period, period);
+        animationManager.start();
 
         plugin.getLogger().info("[ChunkFall] Cobblestone generator task started, base period=" + period + " ticks.");
+    }
 
-        Bukkit.getScheduler().runTaskTimer(plugin, this::tickGenerators, period, period);
+    public void stop() {
+        if (generatorTask != null) {
+            generatorTask.cancel();
+            generatorTask = null;
+        }
+        animationManager.stop();
+        generators.clear();
     }
 
     public void registerGenerator(Block block) {
-        if (block.getType() != Material.BARREL) {
+        if (block == null || block.getType() != Material.BARREL) {
             return;
         }
-        Location loc = block.getLocation();
-        generators.add(loc);
-        progress.put(loc, 0.0);
-        fuelUsesRemaining.put(loc, 0);
-        plugin.getLogger().info("[ChunkFall] Registered cobble generator at " +
-                loc.getWorld().getName() + " " + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ());
+
+        Location location = block.getLocation().toBlockLocation();
+        generators.put(location, new CobbleGeneratorState());
+        debug("Registered generator at " + format(location));
     }
 
     public void unregisterGenerator(Block block) {
-        Location loc = block.getLocation();
-        generators.remove(loc);
-        progress.remove(loc);
-        fuelUsesRemaining.remove(loc);
-        plugin.getLogger().info("[ChunkFall] Unregistered cobble generator at " +
-                loc.getWorld().getName() + " " + loc.getBlockX() + "," + loc.getBlockY() + "," + loc.getBlockZ());
+        if (block == null) {
+            return;
+        }
+        Location location = block.getLocation().toBlockLocation();
+        generators.remove(location);
+        animationManager.hide(location);
+        debug("Unregistered generator at " + format(location));
+    }
+
+    public boolean isGenerator(Location location) {
+        return location != null && generators.containsKey(location.toBlockLocation());
     }
 
     private void tickGenerators() {
-        if (!config.isCobbleGeneratorEnabled()) {
+        if (!config.isCobbleGeneratorEnabled() || generators.isEmpty()) {
             return;
         }
 
-        if (generators.isEmpty()) {
-            return;
-        }
+        Iterator<Map.Entry<Location, CobbleGeneratorState>> iterator = generators.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Location, CobbleGeneratorState> entry = iterator.next();
+            Location location = entry.getKey();
+            CobbleGeneratorState state = entry.getValue();
 
-        Iterator<Location> it = generators.iterator();
-        while (it.hasNext()) {
-            Location loc = it.next();
-            World world = loc.getWorld();
+            World world = location.getWorld();
             if (world == null) {
-                it.remove();
-                progress.remove(loc);
-                fuelUsesRemaining.remove(loc);
+                iterator.remove();
+                animationManager.hide(location);
                 continue;
             }
 
-            int bx = loc.getBlockX();
-            int by = loc.getBlockY();
-            int bz = loc.getBlockZ();
-
-            if (!world.isChunkLoaded(bx >> 4, bz >> 4)) {
+            int chunkX = location.getBlockX() >> 4;
+            int chunkZ = location.getBlockZ() >> 4;
+            if (!world.isChunkLoaded(chunkX, chunkZ)) {
+                animationManager.hide(location);
                 continue;
             }
 
-            Block block = world.getBlockAt(bx, by, bz);
+            Block block = world.getBlockAt(location);
             if (block.getType() != Material.BARREL) {
-                it.remove();
-                progress.remove(loc);
-                fuelUsesRemaining.remove(loc);
+                iterator.remove();
+                animationManager.hide(location);
                 continue;
             }
 
-            BlockState state = block.getState();
-            if (!(state instanceof Container container)) {
-                it.remove();
-                progress.remove(loc);
-                fuelUsesRemaining.remove(loc);
+            BlockState blockState = block.getState();
+            if (!(blockState instanceof Container container)) {
+                iterator.remove();
+                animationManager.hide(location);
                 continue;
             }
 
-            Inventory inv = container.getInventory();
-
-            // Any pickaxe type in slot 0
-            ItemStack pick = inv.getItem(0);
-            if (!isPickaxe(pick)) {
+            Inventory inventory = container.getInventory();
+            ItemStack pickaxe = inventory.getItem(0);
+            if (!isPickaxe(pickaxe)) {
+                animationManager.hide(location);
                 continue;
             }
 
-            double speedMultiplier = getSpeedMultiplier(pick);
+            double speedMultiplier = getSpeedMultiplier(pickaxe);
             if (speedMultiplier <= 0) {
+                animationManager.hide(location);
                 continue;
             }
 
-            boolean hasFuel = hasFuelAvailable(inv, loc);
-            if (hasFuel && config.isCobbleParticlesEnabled()) {
-                spawnWorkingAnimation(world, bx, by, bz, false);
+            boolean hasFuel = hasFuelAvailable(inventory, state);
+            if (!hasFuel) {
+                animationManager.hide(location);
+                continue;
             }
 
-            double prog = progress.getOrDefault(loc, 0.0);
-            prog += speedMultiplier;
+            animationManager.show(location, pickaxe);
 
+            double progress = state.getProgress() + speedMultiplier;
+            boolean generated = false;
             boolean inventoryFull = false;
-            boolean generatedThisTick = false;
 
-            while (prog >= 1.0) {
-                ItemStack currentPick = inv.getItem(0);
-                MineResult result = mineNearestStoneInChunk(world, inv, 0, bx, by, bz, loc, currentPick);
+            while (progress >= 1.0) {
+                MineResult result = mineNearestStoneInChunk(
+                        world,
+                        inventory,
+                        0,
+                        location.getBlockX(),
+                        location.getBlockY(),
+                        location.getBlockZ(),
+                        pickaxe,
+                        state
+                );
 
                 if (!result.mined) {
-                    // Could not mine (no stone, no fuel, or inventory full)
                     inventoryFull = result.inventoryFull;
                     break;
                 }
 
-                generatedThisTick = true;
-                prog -= 1.0;
+                generated = true;
+                progress -= 1.0;
 
                 if (result.pickBroke) {
-                    // Pick broke; stop for this tick
+                    animationManager.hide(location);
                     break;
                 }
             }
 
-            // Visual + audio feedback when we actually mined at least one stone
-            if (generatedThisTick) {
-                spawnWorkingAnimation(world, bx, by, bz, true);
-
-                if (config.isCobbleSoundOnMine()) {
-                    double px = bx + 0.5;
-                    double py = by + 1.2;
-                    double pz = bz + 0.5;
-
-                    world.playSound(new Location(world, px, py, pz), Sound.BLOCK_STONE_BREAK, 0.5f, 1.0f);
-                }
+            if (generated) {
+                spawnWorkingAnimation(world, location.getBlockX(), location.getBlockY(), location.getBlockZ(), true);
+                playMineSound(world, location);
             }
 
             if (inventoryFull) {
-                // Keep current progress; next time it will try again
-                progress.put(loc, prog);
+                state.setProgress(progress);
             } else {
-                if (prog < 0) prog = 0;
-                if (prog > 10) prog = 10; // arbitrary cap
-                progress.put(loc, prog);
+                state.setProgress(Math.min(Math.max(0.0, progress), PROGRESS_CAP));
             }
         }
+    }
+
+    private void playMineSound(World world, Location location) {
+        if (!config.isCobbleSoundOnMine()) {
+            return;
+        }
+        Location soundLoc = location.toCenterLocation().add(0, 0.6, 0);
+        world.playSound(soundLoc, Sound.BLOCK_STONE_BREAK, 0.6f, 1.0f);
     }
 
     private boolean isPickaxe(ItemStack item) {
@@ -202,10 +214,6 @@ public class CobbleGeneratorManager {
                 || type == Material.NETHERITE_PICKAXE;
     }
 
-    /**
-     * Base multipliers per tick are configured in config.yml under cobble-generator.tier-speed.
-     * Efficiency adds +X per level (X from config).
-     */
     private double getSpeedMultiplier(ItemStack pick) {
         Material type = pick.getType();
         double base;
@@ -225,23 +233,19 @@ public class CobbleGeneratorManager {
             return 0.0;
         }
 
-        int effLevel = pick.getEnchantmentLevel(Enchantment.EFFICIENCY); // Efficiency
+        int effLevel = pick.getEnchantmentLevel(Enchantment.EFFICIENCY);
         double effPerLevel = config.getCobbleEfficiencyPerLevel();
         double effMultiplier = 1.0 + (effPerLevel * effLevel);
 
         return base * effMultiplier;
     }
 
-    private boolean hasFuelAvailable(Inventory inv, Location generatorLoc) {
-        if (fuelUsesRemaining.getOrDefault(generatorLoc, 0) > 0) {
+    private boolean hasFuelAvailable(Inventory inv, CobbleGeneratorState state) {
+        if (state.getBufferedFuelUses() > 0) {
             return true;
         }
 
-        for (int slot = 0; slot < inv.getSize(); slot++) {
-            if (slot == 0) {
-                continue;
-            }
-
+        for (int slot = 1; slot < inv.getSize(); slot++) {
             ItemStack stack = inv.getItem(slot);
             if (stack == null || stack.getType() == Material.AIR) {
                 continue;
@@ -269,18 +273,10 @@ public class CobbleGeneratorManager {
         world.spawnParticle(Particle.BLOCK_CRUMBLE, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
 
         Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE;
-        world.spawnParticle(Particle.BLOCK_CRUMBLE, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
-
         int smokeCount = harvested ? 4 : 2;
         world.spawnParticle(smokeType, px, py + 0.1, pz, smokeCount, 0.12, 0.1, 0.12, harvested ? 0.0 : 0.01);
     }
 
-    /**
-     * Damage the pickaxe in a given slot by 1, obeying Unbreaking.
-     * Plays a sound when the pick breaks (if enabled).
-     *
-     * @return false if the pick broke or disappeared, true otherwise.
-     */
     private boolean damagePickaxe(Inventory inv, int slot, World world, int bx, int by, int bz) {
         ItemStack pick = inv.getItem(slot);
         if (!isPickaxe(pick)) {
@@ -292,12 +288,10 @@ public class CobbleGeneratorManager {
             return true;
         }
 
-        // Unbreaking reduces the chance to actually take durability damage
         int unbreakingLevel = pick.getEnchantmentLevel(Enchantment.UNBREAKING);
         if (unbreakingLevel > 0) {
             double chanceToDamage = 1.0 / (unbreakingLevel + 1);
             if (ThreadLocalRandom.current().nextDouble() >= chanceToDamage) {
-                // This “use” did not consume durability
                 return true;
             }
         }
@@ -306,7 +300,6 @@ public class CobbleGeneratorManager {
         int maxDurability = pick.getType().getMaxDurability();
 
         if (newDamage >= maxDurability) {
-            // Break the pick
             inv.setItem(slot, null);
 
             if (config.isCobbleSoundOnBreak()) {
@@ -327,26 +320,14 @@ public class CobbleGeneratorManager {
         }
     }
 
-    /**
-     * Consume one "fuel use" for this generator. If no buffered uses remain, tries to
-     * take a new fuel item from the barrel (any slot except 0).
-     *
-     * Returns true if fuel was successfully consumed (or buffered), false if there is no fuel.
-     */
-    private boolean consumeFuelUse(Location generatorLoc, Inventory inv) {
-        int remaining = fuelUsesRemaining.getOrDefault(generatorLoc, 0);
+    private boolean consumeFuelUse(Inventory inv, CobbleGeneratorState state) {
+        int remaining = state.getBufferedFuelUses();
         if (remaining > 0) {
-            fuelUsesRemaining.put(generatorLoc, remaining - 1);
+            state.setBufferedFuelUses(remaining - 1);
             return true;
         }
 
-        // Need to pull a new fuel item from the barrel.
-        for (int slot = 0; slot < inv.getSize(); slot++) {
-            if (slot == 0) {
-                // slot 0 is reserved for the pickaxe
-                continue;
-            }
-
+        for (int slot = 1; slot < inv.getSize(); slot++) {
             ItemStack stack = inv.getItem(slot);
             if (stack == null || stack.getType() == Material.AIR) {
                 continue;
@@ -362,7 +343,6 @@ public class CobbleGeneratorManager {
                 continue;
             }
 
-            // Consume one item of this fuel stack
             int newAmount = stack.getAmount() - 1;
             if (newAmount <= 0) {
                 inv.setItem(slot, null);
@@ -370,51 +350,34 @@ public class CobbleGeneratorManager {
                 stack.setAmount(newAmount);
             }
 
-            // We immediately consume one "use" for this mining, buffer the rest
-            fuelUsesRemaining.put(generatorLoc, uses - 1);
+            state.setBufferedFuelUses(uses - 1);
             return true;
         }
 
-        // No suitable fuel found
         return false;
     }
 
-    /**
-     * "Is this a valid furnace fuel" — use Bukkit's built-in knowledge.
-     */
     private boolean isFuel(Material type) {
         return type != null && type.isFuel();
     }
 
-    /**
-     * How many cobblestone "mines" a single item of this fuel should provide.
-     * This does NOT try to be pixel-perfect with vanilla burn times, but roughly
-     * respects stronger vs weaker fuels.
-     */
     private int getFuelUses(Material type) {
         return switch (type) {
-            case LAVA_BUCKET -> 100;          // very strong fuel
-            case COAL_BLOCK -> 72;            // 9 * 8
+            case LAVA_BUCKET -> 100;
+            case COAL_BLOCK -> 72;
             case COAL, CHARCOAL, BLAZE_ROD -> 8;
-            default -> 4;                     // generic fuel (logs, planks, etc.)
+            default -> 4;
         };
     }
 
-    /**
-     * Find and mine the closest STONE block in the barrel's chunk.
-     * Requires:
-     *  - free inventory space for cobble,
-     *  - at least 1 "fuel use" available or consumable from inventory.
-     * If any of those is missing, this returns mined=false and does nothing.
-     */
     private MineResult mineNearestStoneInChunk(World world,
                                                Inventory inv,
                                                int pickSlot,
                                                int barrelX,
                                                int barrelY,
                                                int barrelZ,
-                                               Location generatorLoc,
-                                               ItemStack pickForAnimation) {
+                                               ItemStack pickForAnimation,
+                                               CobbleGeneratorState state) {
 
         MineResult result = new MineResult();
 
@@ -433,12 +396,10 @@ public class CobbleGeneratorManager {
         Block bestBlock = null;
         int bestDistSq = Integer.MAX_VALUE;
 
-        // Search outward in vertical "rings" around barrelY
         for (int dy = 0; dy <= maxYRange; dy++) {
             int[] ys = {barrelY + dy, barrelY - dy};
 
-            for (int yi = 0; yi < 2; yi++) {
-                int y = ys[yi];
+            for (int y : ys) {
                 if (y < minY || y > maxY) {
                     continue;
                 }
@@ -469,37 +430,29 @@ public class CobbleGeneratorManager {
         }
 
         if (bestBlock == null) {
-            // No stone found in chunk (within the vertical range)
             return result;
         }
 
-        // Check inventory space for 1 cobblestone BEFORE consuming fuel
         if (!hasSpaceForCobble(inv)) {
             result.inventoryFull = true;
             return result;
         }
 
-        // Require fuel: consume one "fuel use" (buffered or a new item)
-        if (!consumeFuelUse(generatorLoc, inv)) {
-            // No fuel: cannot mine
+        if (!consumeFuelUse(inv, state)) {
             return result;
         }
 
         BlockData minedData = bestBlock.getBlockData();
 
-        // Actually add 1 cobblestone to the barrel
         if (!addOneCobble(inv)) {
-            // Shouldn't happen since we checked space, but be defensive:
             result.inventoryFull = true;
             return result;
         }
 
         spawnMiningAnimation(bestBlock, minedData, pickForAnimation);
 
-        // Mine the stone: turn it into air
         bestBlock.setType(Material.AIR, false);
 
-        // Damage the pickaxe
         boolean stillExists = damagePickaxe(inv, pickSlot, world, barrelX, barrelY, barrelZ);
 
         result.mined = true;
@@ -507,9 +460,6 @@ public class CobbleGeneratorManager {
         return result;
     }
 
-    /**
-     * Check if the inventory has room to add one cobblestone (either stacking or empty slot).
-     */
     private boolean hasSpaceForCobble(Inventory inv) {
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack stack = inv.getItem(i);
@@ -523,11 +473,7 @@ public class CobbleGeneratorManager {
         return false;
     }
 
-    /**
-     * Actually add a single cobblestone item to the inventory, assuming there is space.
-     */
     private boolean addOneCobble(Inventory inv) {
-        // First try to stack onto existing cobble
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack stack = inv.getItem(i);
             if (stack != null && stack.getType() == Material.COBBLESTONE &&
@@ -538,7 +484,6 @@ public class CobbleGeneratorManager {
             }
         }
 
-        // Otherwise, use an empty slot
         for (int i = 0; i < inv.getSize(); i++) {
             ItemStack stack = inv.getItem(i);
             if (stack == null || stack.getType() == Material.AIR) {
@@ -548,12 +493,6 @@ public class CobbleGeneratorManager {
         }
 
         return false;
-    }
-
-    private static class MineResult {
-        boolean mined = false;
-        boolean pickBroke = false;
-        boolean inventoryFull = false;
     }
 
     private void spawnMiningAnimation(Block block, BlockData minedData, ItemStack pickForAnimation) {
@@ -593,6 +532,7 @@ public class CobbleGeneratorManager {
             armorStand.setSmall(true);
             armorStand.setCollidable(false);
             armorStand.setArms(true);
+            armorStand.setRemoveWhenFarAway(true);
             if (armorStand.getEquipment() != null) {
                 armorStand.getEquipment().setItemInMainHand(displayPick);
             }
@@ -601,7 +541,7 @@ public class CobbleGeneratorManager {
         });
 
         new BukkitRunnable() {
-            private int ticks = 0;
+            private int ticks;
 
             @Override
             public void run() {
@@ -632,5 +572,42 @@ public class CobbleGeneratorManager {
                 ticks++;
             }
         }.runTaskTimer(plugin, 0L, 2L);
+    }
+
+    private void debug(String message) {
+        if (config.isCobbleDebug()) {
+            plugin.getLogger().info("[CobbleGen] " + message);
+        }
+    }
+
+    private String format(Location location) {
+        return location.getWorld().getName() + " " + location.getBlockX() + "," + location.getBlockY() + "," + location.getBlockZ();
+    }
+
+    private static class MineResult {
+        boolean mined = false;
+        boolean pickBroke = false;
+        boolean inventoryFull = false;
+    }
+
+    private static class CobbleGeneratorState {
+        private double progress;
+        private int bufferedFuelUses;
+
+        public double getProgress() {
+            return progress;
+        }
+
+        public void setProgress(double progress) {
+            this.progress = progress;
+        }
+
+        public int getBufferedFuelUses() {
+            return bufferedFuelUses;
+        }
+
+        public void setBufferedFuelUses(int bufferedFuelUses) {
+            this.bufferedFuelUses = Math.max(0, bufferedFuelUses);
+        }
     }
 }
