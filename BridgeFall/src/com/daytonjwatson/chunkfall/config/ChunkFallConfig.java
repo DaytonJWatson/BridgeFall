@@ -47,6 +47,9 @@ public class ChunkFallConfig {
     private final boolean cobbleSoundOnCreate;
     private final boolean cobbleSoundOnMine;
     private final boolean cobbleSoundOnBreak;
+    private final boolean cobbleAnimationEnabled;
+    private final int cobbleAnimationUpdateTicks;
+    private final boolean cobbleDebug;
 
     public ChunkFallConfig(Plugin plugin) {
         FileConfiguration cfg = plugin.getConfig();
@@ -108,6 +111,12 @@ public class ChunkFallConfig {
         this.cobbleSoundOnCreate = snd != null ? snd.getBoolean("on-create", true) : true;
         this.cobbleSoundOnMine = snd != null ? snd.getBoolean("on-mine", true) : true;
         this.cobbleSoundOnBreak = snd != null ? snd.getBoolean("on-break", true) : true;
+
+        ConfigurationSection animation = cg != null ? cg.getConfigurationSection("animation") : null;
+        this.cobbleAnimationEnabled = animation == null || animation.getBoolean("enabled", true);
+        this.cobbleAnimationUpdateTicks = animation != null ? Math.max(1, animation.getInt("update-ticks", 5)) : 5;
+
+        this.cobbleDebug = cg != null && cg.getBoolean("debug", false);
     }
 
     public String getTargetWorldName() {
@@ -230,6 +239,18 @@ public class ChunkFallConfig {
 
     public boolean isCobbleSoundOnBreak() {
         return cobbleSoundOnBreak;
+    }
+
+    public boolean isCobbleAnimationEnabled() {
+        return cobbleAnimationEnabled;
+    }
+
+    public int getCobbleAnimationUpdateTicks() {
+        return cobbleAnimationUpdateTicks;
+    }
+
+    public boolean isCobbleDebug() {
+        return cobbleDebug;
     }
 
     public boolean isTargetWorld(World world) {

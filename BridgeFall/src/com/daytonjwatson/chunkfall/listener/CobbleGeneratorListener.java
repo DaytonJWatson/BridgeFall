@@ -2,7 +2,7 @@ package com.daytonjwatson.chunkfall.listener;
 
 import com.daytonjwatson.chunkfall.config.ChunkFallConfig;
 import com.daytonjwatson.chunkfall.logic.CobbleGeneratorManager;
-import com.daytonjwatson.chunkfall.util.MessageUtil;
+import com.daytonjwatson.chunkfall.util.CobbleGenMessages;
 import org.bukkit.Material;
 import org.bukkit.Sound;
 import org.bukkit.block.Block;
@@ -63,18 +63,25 @@ public class CobbleGeneratorListener implements Listener {
             return;
         }
 
+        if (!config.isTargetWorld(block.getWorld())) {
+            return;
+        }
+
         Player player = event.getPlayer();
 
-        // Must be sneaking and holding a pickaxe
         ItemStack inHand = player.getInventory().getItemInMainHand();
         if (!player.isSneaking() || !isPickaxe(inHand)) {
             return;
         }
 
+        if (manager.isGenerator(block.getLocation())) {
+            CobbleGenMessages.warning(player, "This barrel already has a cobblestone generator.");
+            return;
+        }
+
         BlockState state = block.getState();
         if (!(state instanceof Container container)) {
-            MessageUtil.error(player,
-                    "This block cannot function as a cobblestone generator.");
+            CobbleGenMessages.error(player, "You must use a barrel to create a cobblestone generator.");
             return;
         }
 
@@ -82,8 +89,7 @@ public class CobbleGeneratorListener implements Listener {
 
         // If slot 0 is already used, don't override it
         if (inv.getItem(0) != null) {
-            MessageUtil.warning(player,
-                    "Slot 0 of this barrel is already occupied. Clear it before creating a generator.");
+            CobbleGenMessages.warning(player, "Slot 0 of this barrel is already occupied. Clear it first.");
             return;
         }
 
@@ -97,15 +103,14 @@ public class CobbleGeneratorListener implements Listener {
         manager.registerGenerator(block);
 
         // 4) Feedback, sound (if enabled), and show the barrel inventory so the player can see the pick.
-        MessageUtil.success(player,
-                "Cobblestone generator created. Your pickaxe has been placed into slot 0 of this barrel.");
+        CobbleGenMessages.success(player, "Cobblestone generator created. Your pickaxe is now in slot 0.");
 
         if (config.isCobbleSoundOnCreate()) {
             block.getWorld().playSound(
                     block.getLocation().add(0.5, 0.5, 0.5),
-                    Sound.BLOCK_BEACON_ACTIVATE,
+                    Sound.BLOCK_ANVIL_USE,
                     0.8f,
-                    1.2f
+                    1.05f
             );
         }
 
@@ -127,8 +132,7 @@ public class CobbleGeneratorListener implements Listener {
 
         // If you want to notify the breaker:
         if (event.getPlayer() != null) {
-            MessageUtil.info(event.getPlayer(),
-                    "Cobblestone generator removed.");
+            CobbleGenMessages.info(event.getPlayer(), "Cobblestone generator removed.");
         }
     }
 }
