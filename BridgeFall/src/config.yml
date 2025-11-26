@@ -1,0 +1,94 @@
+# -------------------------------
+# ChunkFall Main Configuration
+# -------------------------------
+
+# Name of the OVERWORLD where islands should generate.
+# The NETHER world is assumed to be: <target-world>_nether
+target-world: world
+
+# Size of each island region in CHUNKS.
+# Example: 64 = one island every 64x64 chunks.
+region-size-chunks: 8
+
+# Move the OVERWORLD spawn to the island in region (0,0).
+set-overworld-spawn-on-island: true
+
+# -----------------------------------
+# Overworld Structure Protection
+# -----------------------------------
+
+# Preserve any chunk in the OVERWORLD containing an END PORTAL FRAME
+# (the stronghold end portal room).
+protect-end-portal-room: true
+
+# Also preserve all 8 neighboring chunks around an End Portal Frame chunk.
+protect-end-portal-neighbors: false
+
+# -----------------------------------
+# Nether Structure Protection
+# -----------------------------------
+
+# Preserve a Nether chunk ONLY if it contains:
+#   • A BLAZE SPAWNER
+#   • NETHER WART
+protect-nether-fortress-essential-chunks: true
+
+# -----------------------------------
+# Elytra Settings
+# -----------------------------------
+
+# If true, players can still glide with elytras,
+# but CANNOT use firework rockets to boost.
+disable-elytra-rocket-boost: true
+
+# -----------------------------------
+# Cobblestone Generator
+# -----------------------------------
+
+cobble-generator:
+  enabled: true
+    
+  # Base scheduler tick period. This is the "unit time" all other multipliers work against.
+  ticks-per-cobble: 20
+
+  # How far up/down (in blocks) from the barrel Y to search for stone in the chunk.
+  vertical-search-range: 64
+
+  # Extra speed factor per Efficiency level. 0.2 means +20% per level.
+  efficiency-multiplier-per-level: 0.2
+
+  tier-speed:
+    wooden: 0.25
+    stone: 0.5
+    copper: 0.625
+    iron: 0.75
+    gold: 1.25
+    diamond: 1.0
+    netherite: 1.1
+
+  # Visual/audio feedback
+  particles: true
+  sound:
+    on-create: true
+    on-mine: true
+    on-break: true
+
+# -----------------------------------
+# Limbo Settings
+# -----------------------------------
+
+limbo:
+  world-name: limbo        # Name of the Limbo world
+  bedrock-y: 40            # Y level of the single bedrock block at (1, bedrock-y, 1)
+
+  cobblestone-stack-size: 64 # Size of the "infinite" cobblestone stack
+
+  # How many respawn anchors to spawn each time a player is sent to Limbo
+  anchors-per-entry: 3
+
+  # Random Y range for anchors in Limbo
+  anchor-min-y: 40
+  anchor-max-y: 120
+
+  # Radius around (0,0) to spawn anchors (random X/Z inside this radius)
+  anchor-radius: 256

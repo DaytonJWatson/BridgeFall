@@ -1,0 +1,7 @@
+name: ChunkFall
+main: com.daytonjwatson.chunkfall.ChunkFallPlugin
+version: 1.0.0
+api-version: 1.20
+author: Dayton
+description: "Void-style islands in overworld and nether with structure protection."
+load: STARTUP
