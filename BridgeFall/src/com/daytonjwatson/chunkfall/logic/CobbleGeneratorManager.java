@@ -262,6 +262,9 @@ public class CobbleGeneratorManager {
         double pz = bz + 0.5;
 
         int crackCount = harvested ? 6 : 3;
+        world.spawnParticle(Particle.BLOCK_CRACK, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
+
+        Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE_NORMAL;
         world.spawnParticle(Particle.BLOCK_CRUMBLE, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
 
         Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE;
@@ -478,12 +481,16 @@ public class CobbleGeneratorManager {
             return result;
         }
 
+        BlockData minedData = bestBlock.getBlockData();
+
         // Actually add 1 cobblestone to the barrel
         if (!addOneCobble(inv)) {
             // Shouldn't happen since we checked space, but be defensive:
             result.inventoryFull = true;
             return result;
         }
+
+        spawnMiningAnimation(bestBlock, minedData);
 
         // Mine the stone: turn it into air
         bestBlock.setType(Material.AIR, false);
@@ -543,5 +550,20 @@ public class CobbleGeneratorManager {
         boolean mined = false;
         boolean pickBroke = false;
         boolean inventoryFull = false;
+    }
+
+    private void spawnMiningAnimation(Block block, BlockData minedData) {
+        if (!config.isCobbleParticlesEnabled()) {
+            return;
+        }
+
+        Location loc = block.getLocation();
+        World world = block.getWorld();
+        double px = loc.getX() + 0.5;
+        double py = loc.getY() + 0.5;
+        double pz = loc.getZ() + 0.5;
+
+        world.spawnParticle(Particle.BLOCK_CRACK, px, py, pz, 12, 0.2, 0.2, 0.2, 0.0, minedData);
+        world.spawnParticle(Particle.CRIT, px, py, pz, 6, 0.15, 0.25, 0.15, 0.01);
     }
 }
