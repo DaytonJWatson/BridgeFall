@@ -12,11 +12,14 @@ import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.Damageable;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.plugin.Plugin;
+import org.bukkit.scheduler.BukkitRunnable;
+import org.bukkit.util.EulerAngle;
 
 import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
@@ -143,7 +146,8 @@ public class CobbleGeneratorManager {
             boolean generatedThisTick = false;
 
             while (prog >= 1.0) {
-                MineResult result = mineNearestStoneInChunk(world, inv, 0, bx, by, bz, loc);
+                ItemStack currentPick = inv.getItem(0);
+                MineResult result = mineNearestStoneInChunk(world, inv, 0, bx, by, bz, loc, currentPick);
 
                 if (!result.mined) {
                     // Could not mine (no stone, no fuel, or inventory full)
@@ -409,7 +413,8 @@ public class CobbleGeneratorManager {
                                                int barrelX,
                                                int barrelY,
                                                int barrelZ,
-                                               Location generatorLoc) {
+                                               Location generatorLoc,
+                                               ItemStack pickForAnimation) {
 
         MineResult result = new MineResult();
 
@@ -489,7 +494,7 @@ public class CobbleGeneratorManager {
             return result;
         }
 
-        spawnMiningAnimation(bestBlock, minedData);
+        spawnMiningAnimation(bestBlock, minedData, pickForAnimation);
 
         // Mine the stone: turn it into air
         bestBlock.setType(Material.AIR, false);
@@ -551,7 +556,7 @@ public class CobbleGeneratorManager {
         boolean inventoryFull = false;
     }
 
-    private void spawnMiningAnimation(Block block, BlockData minedData) {
+    private void spawnMiningAnimation(Block block, BlockData minedData, ItemStack pickForAnimation) {
         if (!config.isCobbleParticlesEnabled()) {
             return;
         }
@@ -564,5 +569,68 @@ public class CobbleGeneratorManager {
 
         world.spawnParticle(Particle.BLOCK_CRUMBLE, px, py, pz, 12, 0.2, 0.2, 0.2, 0.0, minedData);
         world.spawnParticle(Particle.CRIT, px, py, pz, 6, 0.15, 0.25, 0.15, 0.01);
+
+        if (isPickaxe(pickForAnimation)) {
+            spawnPickaxeSwing(loc, pickForAnimation);
+        }
+    }
+
+    private void spawnPickaxeSwing(Location blockLoc, ItemStack pickForAnimation) {
+        World world = blockLoc.getWorld();
+        if (world == null) {
+            return;
+        }
+
+        ItemStack displayPick = pickForAnimation.clone();
+        displayPick.setAmount(1);
+
+        Location standLoc = blockLoc.toCenterLocation().add(0, 0.2, 0);
+        ArmorStand stand = world.spawn(standLoc, ArmorStand.class, armorStand -> {
+            armorStand.setInvisible(true);
+            armorStand.setMarker(true);
+            armorStand.setGravity(false);
+            armorStand.setSilent(true);
+            armorStand.setSmall(true);
+            armorStand.setCollidable(false);
+            armorStand.setArms(true);
+            if (armorStand.getEquipment() != null) {
+                armorStand.getEquipment().setItemInMainHand(displayPick);
+            }
+            armorStand.setRightArmPose(new EulerAngle(Math.toRadians(-100), 0, Math.toRadians(25)));
+            armorStand.setRotation(ThreadLocalRandom.current().nextFloat() * 360f, 0f);
+        });
+
+        new BukkitRunnable() {
+            private int ticks = 0;
+
+            @Override
+            public void run() {
+                if (!stand.isValid()) {
+                    cancel();
+                    return;
+                }
+
+                switch (ticks) {
+                    case 1 -> {
+                        stand.setRightArmPose(new EulerAngle(Math.toRadians(-40), 0, Math.toRadians(-5)));
+                        stand.teleport(stand.getLocation().add(0, 0.08, 0));
+                    }
+                    case 2 -> {
+                        stand.setRightArmPose(new EulerAngle(Math.toRadians(-160), 0, Math.toRadians(10)));
+                        stand.teleport(stand.getLocation().add(0, -0.12, 0));
+                    }
+                    case 3 -> stand.setRightArmPose(new EulerAngle(Math.toRadians(-75), 0, Math.toRadians(18)));
+                    default -> {
+                    }
+                }
+
+                if (ticks >= 4) {
+                    stand.remove();
+                    cancel();
+                }
+
+                ticks++;
+            }
+        }.runTaskTimer(plugin, 0L, 2L);
     }
 }
