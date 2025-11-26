@@ -10,6 +10,7 @@ import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -130,6 +131,11 @@ public class CobbleGeneratorManager {
                 continue;
             }
 
+            boolean hasFuel = hasFuelAvailable(inv, loc);
+            if (hasFuel && config.isCobbleParticlesEnabled()) {
+                spawnWorkingAnimation(world, bx, by, bz, false);
+            }
+
             double prog = progress.getOrDefault(loc, 0.0);
             prog += speedMultiplier;
 
@@ -156,27 +162,14 @@ public class CobbleGeneratorManager {
 
             // Visual + audio feedback when we actually mined at least one stone
             if (generatedThisTick) {
-                double px = bx + 0.5;
-                double py = by + 1.2;
-                double pz = bz + 0.5;
-
-                if (config.isCobbleParticlesEnabled()) {
-                    world.spawnParticle(
-                            Particle.CAMPFIRE_COSY_SMOKE,
-                            px, py, pz,
-                            3,
-                            0.1, 0.2, 0.1,
-                            0.0
-                    );
-                }
+                spawnWorkingAnimation(world, bx, by, bz, true);
 
                 if (config.isCobbleSoundOnMine()) {
-                    world.playSound(
-                            new Location(world, px, py, pz),
-                            Sound.BLOCK_STONE_BREAK,
-                            0.5f,
-                            1.0f
-                    );
+                    double px = bx + 0.5;
+                    double py = by + 1.2;
+                    double pz = bz + 0.5;
+
+                    world.playSound(new Location(world, px, py, pz), Sound.BLOCK_STONE_BREAK, 0.5f, 1.0f);
                 }
             }
 
@@ -233,6 +226,47 @@ public class CobbleGeneratorManager {
         double effMultiplier = 1.0 + (effPerLevel * effLevel);
 
         return base * effMultiplier;
+    }
+
+    private boolean hasFuelAvailable(Inventory inv, Location generatorLoc) {
+        if (fuelUsesRemaining.getOrDefault(generatorLoc, 0) > 0) {
+            return true;
+        }
+
+        for (int slot = 0; slot < inv.getSize(); slot++) {
+            if (slot == 0) {
+                continue;
+            }
+
+            ItemStack stack = inv.getItem(slot);
+            if (stack == null || stack.getType() == Material.AIR) {
+                continue;
+            }
+
+            if (isFuel(stack.getType())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void spawnWorkingAnimation(World world, int bx, int by, int bz, boolean harvested) {
+        if (!config.isCobbleParticlesEnabled()) {
+            return;
+        }
+
+        BlockData cobbleData = Material.COBBLESTONE.createBlockData();
+        double px = bx + 0.5;
+        double py = by + 1.15;
+        double pz = bz + 0.5;
+
+        int crackCount = harvested ? 6 : 3;
+        world.spawnParticle(Particle.BLOCK_CRACK, px, py, pz, crackCount, 0.25, 0.15, 0.25, 0.0, cobbleData);
+
+        Particle smokeType = harvested ? Particle.CAMPFIRE_COSY_SMOKE : Particle.SMOKE_NORMAL;
+        int smokeCount = harvested ? 4 : 2;
+        world.spawnParticle(smokeType, px, py + 0.1, pz, smokeCount, 0.12, 0.1, 0.12, harvested ? 0.0 : 0.01);
     }
 
     /**
@@ -444,12 +478,16 @@ public class CobbleGeneratorManager {
             return result;
         }
 
+        BlockData minedData = bestBlock.getBlockData();
+
         // Actually add 1 cobblestone to the barrel
         if (!addOneCobble(inv)) {
             // Shouldn't happen since we checked space, but be defensive:
             result.inventoryFull = true;
             return result;
         }
+
+        spawnMiningAnimation(bestBlock, minedData);
 
         // Mine the stone: turn it into air
         bestBlock.setType(Material.AIR, false);
@@ -509,5 +547,20 @@ public class CobbleGeneratorManager {
         boolean mined = false;
         boolean pickBroke = false;
         boolean inventoryFull = false;
+    }
+
+    private void spawnMiningAnimation(Block block, BlockData minedData) {
+        if (!config.isCobbleParticlesEnabled()) {
+            return;
+        }
+
+        Location loc = block.getLocation();
+        World world = block.getWorld();
+        double px = loc.getX() + 0.5;
+        double py = loc.getY() + 0.5;
+        double pz = loc.getZ() + 0.5;
+
+        world.spawnParticle(Particle.BLOCK_CRACK, px, py, pz, 12, 0.2, 0.2, 0.2, 0.0, minedData);
+        world.spawnParticle(Particle.CRIT, px, py, pz, 6, 0.15, 0.25, 0.15, 0.01);
     }
 }

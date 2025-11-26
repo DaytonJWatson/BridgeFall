@@ -5,3 +5,15 @@ api-version: 1.20
 author: Dayton
 description: "Void-style islands in overworld and nether with structure protection."
 load: STARTUP
+commands:
+  chunkfall:
+    description: Base command for ChunkFall utilities.
+    usage: /chunkfall help
+    aliases: [cf]
+permissions:
+  chunkfall.limbo:
+    description: Send players to Limbo.
+    default: op
+  chunkfall.anchors:
+    description: Spawn respawn anchors in Limbo.
+    default: op
