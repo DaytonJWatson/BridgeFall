@@ -584,7 +584,7 @@ public class CobbleGeneratorManager {
         ItemStack displayPick = pickForAnimation.clone();
         displayPick.setAmount(1);
 
-        Location standLoc = blockLoc.toCenterLocation().add(0, 0.2, 0);
+        Location standLoc = blockLoc.add(0.5, 0.2, 0.5);
         ArmorStand stand = world.spawn(standLoc, ArmorStand.class, armorStand -> {
             armorStand.setInvisible(true);
             armorStand.setMarker(true);
